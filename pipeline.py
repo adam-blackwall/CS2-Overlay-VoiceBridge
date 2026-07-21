@@ -14,6 +14,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 
 import numpy as np
 
@@ -57,7 +58,35 @@ def _resample_linear(mono: np.ndarray, src_hz: int, dst_hz: int) -> np.ndarray:
 
 
 def _norm_text(s: str) -> str:
-    return re.sub(r"\s+", " ", (s or "").strip().lower())
+    t = re.sub(r"\s+", " ", (s or "").strip().lower())
+    # drop trailing punctuation noise from Whisper
+    t = re.sub(r"[\"'`]+", "", t)
+    t = re.sub(r"[.!?…,;:]+$", "", t)
+    return t.strip()
+
+
+def _token_set(s: str) -> set[str]:
+    return {w for w in _norm_text(s).split() if w}
+
+
+def _text_similar(a: str, b: str, *, threshold: float = 0.78) -> bool:
+    """True if two transcripts are effectively the same utterance."""
+    na, nb = _norm_text(a), _norm_text(b)
+    if not na or not nb:
+        return False
+    if na == nb:
+        return True
+    # one contains the other (partial re-hear of same line)
+    shorter, longer = (na, nb) if len(na) <= len(nb) else (nb, na)
+    if len(shorter) >= 4 and shorter in longer:
+        if len(shorter) / max(len(longer), 1) >= 0.70:
+            return True
+    ta, tb = _token_set(na), _token_set(nb)
+    if ta and tb:
+        jacc = len(ta & tb) / len(ta | tb)
+        if jacc >= 0.72:
+            return True
+    return SequenceMatcher(None, na, nb).ratio() >= threshold
 
 
 class SpeechPipeline:
@@ -67,12 +96,12 @@ class SpeechPipeline:
         target_lang: str = "de",
         model_size: str = "base",
         sample_rate_in: int = 48000,
-        energy_threshold: float = 0.0005,
+        energy_threshold: float = 0.0008,
         interval_ms: int = 550,
         window_ms: int = 3000,
         silence_ms: int = 550,
         min_speech_ms: int = 50,
-        word_delay_ms: int = 0,
+        word_delay_ms: int = 140,
         speaker_detect: bool = False,
         on_event: Callable[[PipelineEvent], None] | None = None,
     ) -> None:
@@ -120,6 +149,12 @@ class SpeechPipeline:
         self._quiet_since: float | None = None
         self._line_open = False
         self._noise_floor = 0.0015
+        self._reveal_id = 0  # cancel in-flight word-by-word reveal
+        # Dedup: rolling window re-STT often re-hears the same call slightly wrong
+        self._recent: list[tuple[float, str]] = []  # (mono_time, norm_source)
+        self._recent_ttl_s = 14.0
+        self._last_emit_mono = 0.0
+        self._min_emit_gap_s = 0.85
 
     @property
     def target_lang(self) -> Lang:
@@ -225,6 +260,19 @@ class SpeechPipeline:
             if self._ring.size > max_n:
                 self._ring = self._ring[-max_n:]
 
+    def _trim_ring_keep_tail(self, seconds: float = 0.40) -> None:
+        """Drop audio already spoken so Whisper cannot re-hear the same line."""
+        keep = max(0, int(self._sr_in * seconds))
+        with self._ring_lock:
+            if self._ring.size > keep:
+                self._ring = self._ring[-keep:].copy() if keep else np.zeros(0, dtype=np.float32)
+            elif keep == 0:
+                self._ring = np.zeros(0, dtype=np.float32)
+
+    def _clear_ring(self) -> None:
+        with self._ring_lock:
+            self._ring = np.zeros(0, dtype=np.float32)
+
     def _snapshot(self, ms: int) -> np.ndarray:
         n = int(self._sr_in * (ms / 1000.0))
         with self._ring_lock:
@@ -233,6 +281,68 @@ class SpeechPipeline:
             if self._ring.size <= n:
                 return self._ring.copy()
             return self._ring[-n:].copy()
+
+    def _prune_recent(self) -> None:
+        now = time.monotonic()
+        ttl = self._recent_ttl_s
+        self._recent = [(t, s) for t, s in self._recent if now - t < ttl]
+
+    def _remember_source(self, source: str) -> None:
+        n = _norm_text(source)
+        if not n:
+            return
+        self._prune_recent()
+        self._recent.append((time.monotonic(), n))
+        if len(self._recent) > 24:
+            self._recent = self._recent[-24:]
+
+    def _decide_utterance(self, source: str) -> str | None:
+        """
+        Return how to handle this STT result:
+          'new'    — fresh line
+          'update' — same open line, clearly longer/better
+          None     — duplicate / near-duplicate → drop
+        """
+        n = _norm_text(source)
+        if not n or len(n) < 2:
+            return None
+
+        now = time.monotonic()
+        self._prune_recent()
+
+        # Hard cooldown against spam of near-identical lines
+        if now - self._last_emit_mono < self._min_emit_gap_s:
+            last = _norm_text(self._last_source)
+            if last and _text_similar(n, last, threshold=0.70):
+                return None
+
+        # Against anything we already showed recently (incl. after silence)
+        for _t, prev in self._recent:
+            if _text_similar(n, prev, threshold=0.76):
+                # allow only if clearly longer expansion of that recent line
+                if len(n) > len(prev) * 1.25 + 4 and prev in n:
+                    continue
+                return None
+
+        last = _norm_text(self._last_source)
+        if not last:
+            return "new"
+        if n == last:
+            return None
+        # Shorter re-hear of the same phrase → ignore
+        if n in last and len(n) < len(last):
+            return None
+        if _text_similar(n, last, threshold=0.74):
+            # Same idea: only keep if meaningfully longer
+            if len(n) >= len(last) + 4 or (
+                last in n and len(n) > len(last) + 2
+            ):
+                return "update"
+            return None
+        # Extension of current open line
+        if self._line_open and last in n and len(n) > len(last) + 2:
+            return "update"
+        return "new"
 
     def _ingest_loop(self) -> None:
         while not self._stop.is_set():
@@ -244,7 +354,7 @@ class SpeechPipeline:
                 break
             self._append_ring(chunk)
             rms, peak, voiced = self._voice_metrics(chunk)
-            level = min(1.0, max(rms * 14.0, peak * 5.0))
+            level = min(1.0, max(rms * 10.0, peak * 3.5))
             self._emit(PipelineEvent(kind="level", level=level))
             if voiced:
                 self._had_voice = True
@@ -314,6 +424,8 @@ class SpeechPipeline:
         quiet_ms = (time.monotonic() - self._quiet_since) * 1000.0
         if quiet_ms < self._silence_ms:
             return
+        if self._last_source:
+            self._remember_source(self._last_source)
         if self._last_translated:
             self._emit(
                 PipelineEvent(
@@ -330,6 +442,8 @@ class SpeechPipeline:
         self._quiet_since = None
         self._last_source = ""
         self._last_translated = ""
+        # Drop buffered audio — otherwise next tick re-STTs the same phrase
+        self._clear_ring()
         # Soft reset Whisper prompt context on long silence
         try:
             self._stt.reset_context()
@@ -364,11 +478,11 @@ class SpeechPipeline:
             return
 
         rms, peak, activity = self._voice_metrics(window)
-        level = min(1.0, max(rms * 25.0, peak * 8.0))
+        level = min(1.0, max(rms * 12.0, peak * 4.0))
         self._emit(PipelineEvent(kind="level", level=level))
 
-        # Very low energy bar — almost any non-silence
-        if not has_audio_energy(window, min_rms=0.0005, min_peak=0.0018) and not activity:
+        # Slightly higher bar — skip floor noise / faint SFX
+        if not has_audio_energy(window, min_rms=0.0009, min_peak=0.003) and not activity:
             return
 
         # Only pure gunshot spam (never block normal voice)
@@ -377,12 +491,15 @@ class SpeechPipeline:
             return
 
         mono16 = _resample_linear(window, self._sr_in, self._sr_stt)
-        # Pre-Whisper boost for quiet CS2 team voice
+        # Gentle pre-Whisper boost only when still very quiet (avoid double-AGC clip)
         p = float(np.max(np.abs(mono16)) + 1e-9)
         r = float(np.sqrt(np.mean(np.square(mono16))) + 1e-9)
-        if p < 0.20 or r < 0.04:
-            gain = min(40.0, 0.28 / max(p, r * 2.0, 1e-5))
+        if p < 0.10 or r < 0.02:
+            gain = min(6.0, 0.14 / max(p, r * 2.0, 1e-5))
             mono16 = np.clip(mono16 * gain, -1.0, 1.0).astype(np.float32)
+        elif p > 0.85:
+            # Soft peak limit if already hot
+            mono16 = np.clip(mono16 * (0.75 / p), -1.0, 1.0).astype(np.float32)
 
         print(
             f"[tick] ring={ring_n} win={window.size} rms={rms:.4f} peak={peak:.4f} → STT…",
@@ -411,7 +528,12 @@ class SpeechPipeline:
         source = tr.text.strip()
         if is_garbage_transcript(source):
             return
-        if _norm_text(source) == _norm_text(self._last_source):
+
+        decision = self._decide_utterance(source)
+        if decision is None:
+            print(f"[skip] duplicate/near: {source!r}", flush=True)
+            # Still trim a bit so we do not hammer the same audio forever
+            self._trim_ring_keep_tail(0.55)
             return
 
         target = self.target_lang
@@ -421,15 +543,27 @@ class SpeechPipeline:
             print(f"Translate error: {exc}", flush=True)
             translated = source
 
+        # Also skip if translation is basically the same as last shown line
+        if decision == "new" and self._last_translated and _text_similar(
+            translated, self._last_translated, threshold=0.80
+        ):
+            print(f"[skip] same translation: {translated!r}", flush=True)
+            self._remember_source(source)
+            self._trim_ring_keep_tail(0.55)
+            return
+
         print(
-            f"[heard] {tr.language}: {source!r} → {target.code}: {translated!r}",
+            f"[heard/{decision}] {tr.language}: {source!r} → {target.code}: {translated!r}",
             flush=True,
         )
 
         self._last_source = source
         self._last_translated = translated
+        self._last_emit_mono = time.monotonic()
+        self._remember_source(source)
 
-        if not self._line_open:
+        if decision == "new":
+            # Push previous current line to history (if any), then start fresh
             self._emit(
                 PipelineEvent(
                     kind="partial",
@@ -440,18 +574,69 @@ class SpeechPipeline:
                 )
             )
             self._line_open = True
+        # decision == "update": same line slot — replace text, no history spam
 
-        self._emit(
-            PipelineEvent(
-                kind="partial",
-                text=translated,
-                stream=True,
-                source_lang=tr.language,
-                target_lang=target.code,
-                status="processing",
-            )
+        # Word-by-word reveal (translated phrase builds left → right)
+        self._emit_words_stream(
+            translated,
+            source_lang=tr.language,
+            target_lang=target.code,
+            quick=(decision == "update"),
         )
+        # Prevent immediate re-STT of the same window
+        self._trim_ring_keep_tail(0.45)
         self._emit(PipelineEvent(kind="status", status="listening"))
+
+    def _emit_words_stream(
+        self,
+        translated: str,
+        *,
+        source_lang: str,
+        target_lang: str,
+        quick: bool = False,
+    ) -> None:
+        """Show translation one word at a time, accumulating on the overlay line."""
+        text = (translated or "").strip()
+        if not text:
+            return
+        words = text.split()
+        if not words:
+            return
+
+        self._reveal_id += 1
+        rid = self._reveal_id
+        delay_ms = int(self._word_delay_ms or 0)
+        # Updates / single word / delay 0 → show full line (avoid re-animating repeats)
+        if quick or delay_ms <= 0 or len(words) == 1:
+            self._emit(
+                PipelineEvent(
+                    kind="partial",
+                    text=text,
+                    stream=True,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    status="processing",
+                )
+            )
+            return
+
+        delay_s = min(0.45, max(0.04, delay_ms / 1000.0))
+        acc: list[str] = []
+        for w in words:
+            if self._stop.is_set() or rid != self._reveal_id:
+                return
+            acc.append(w)
+            self._emit(
+                PipelineEvent(
+                    kind="partial",
+                    text=" ".join(acc),
+                    stream=True,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    status="processing",
+                )
+            )
+            time.sleep(delay_s)
 
     def _translate_cached(self, text: str, source_lang: str, target_code: str) -> str:
         key = (_norm_text(text), source_lang or "auto", target_code)

@@ -369,7 +369,7 @@ class OverlayWindow(QWidget):
     # --- window chrome -----------------------------------------------------
 
     def _setup_window(self) -> None:
-        self.setWindowTitle("CS2 Voice Overlay 1.0.3")
+        self.setWindowTitle("CS2 Voice Overlay 1.0.4")
         # Frameless + always-on-top, but still a normal window (taskbar entry).
         # Avoid Qt.Tool + ShowWithoutActivating — that made the window easy to "lose".
         flags = (
@@ -461,12 +461,18 @@ class OverlayWindow(QWidget):
         self.lbl_history.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         panel_layout.addWidget(self.lbl_history)
 
-        # Slot: current line (main) OR waving dots while waiting
+        # Slot: current phrase (1–3 lines, wraps with sentence length)
         self.lbl_current = QLabel()
         self.lbl_current.setObjectName("current")
         self.lbl_current.setWordWrap(True)
-        self.lbl_current.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.lbl_current.setMinimumWidth(480)
+        self.lbl_current.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
+        self.lbl_current.setMinimumWidth(420)
+        self.lbl_current.setMaximumWidth(640)
+        # Room for up to ~3 lines (updated dynamically in _fit_current_label)
+        self.lbl_current.setMinimumHeight(20)
+        self.lbl_current.setMaximumHeight(72)
         panel_layout.addWidget(self.lbl_current)
 
         self.wait_dots = WaitingDots()
@@ -544,16 +550,18 @@ class OverlayWindow(QWidget):
             #history {
                 color: rgba(220, 228, 240, 200);
                 font-family: 'Segoe UI', sans-serif;
-                font-size: 13px;
-                min-height: 18px;
+                font-size: 11px;
+                min-height: 16px;
             }
             #current {
                 color: #ffffff;
                 font-family: 'Segoe UI', sans-serif;
-                font-size: 20px;
-                font-weight: 700;
-                min-height: 32px;
-                min-width: 480px;
+                font-size: 13px;
+                font-weight: 600;
+                min-height: 20px;
+                max-height: 72px;
+                min-width: 420px;
+                padding: 0px;
             }
             #hint {
                 color: rgba(180, 190, 210, 90);
@@ -823,10 +831,37 @@ class OverlayWindow(QWidget):
         self._set_waiting(waiting)
         if not waiting:
             if self.lbl_current.text() != cur:
-                self.lbl_current.setText(cur)
+                self._fit_current_label(cur)
                 self.adjustSize()
                 if self._position_locked:
                     self._place_corner()
+
+    def _fit_current_label(self, text: str) -> None:
+        """Wrap current phrase over 1–3 lines depending on length."""
+        self.lbl_current.setText(text)
+        self.lbl_current.setWordWrap(True)
+        # Prefer panel width; fall back to a readable caption width
+        margins = 24
+        avail = self.width() - margins if self.width() > 100 else 520
+        w = int(max(420, min(avail, 620)))
+        self.lbl_current.setFixedWidth(w)
+
+        metrics = self.lbl_current.fontMetrics()
+        line_h = max(metrics.lineSpacing(), metrics.height())
+        # heightForWidth needs the label to know its width
+        needed = self.lbl_current.heightForWidth(w)
+        if needed < 0:
+            # estimate from char width
+            avg = max(metrics.horizontalAdvance("x"), 6)
+            chars_per_line = max(1, w // avg)
+            n_lines = max(1, (len(text) + chars_per_line - 1) // chars_per_line)
+            needed = n_lines * line_h
+        max_h = int(line_h * 3 + 8)  # up to 3 lines
+        min_h = int(line_h + 2)
+        h = int(max(min_h, min(needed + 2, max_h)))
+        self.lbl_current.setMinimumHeight(h)
+        self.lbl_current.setMaximumHeight(max_h)
+        self.lbl_current.setFixedHeight(h)
 
     def _set_waiting(self, waiting: bool) -> None:
         if waiting:

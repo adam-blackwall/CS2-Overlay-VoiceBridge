@@ -1,5 +1,5 @@
 """
-CS2 Voice Overlay 1.0.3 — Counter-Strike 2 only
+CS2 Voice Overlay 1.0.4 — Counter-Strike 2 only
 
 Team voice → live STT → translate callouts → overlay.
 External process only — does NOT inject into cs2.exe.
@@ -37,13 +37,13 @@ from overlay import MockPipeline, OverlayBus, OverlayUpdate, OverlayWindow
 from pipeline import PipelineEvent, SpeechPipeline
 from stt import detect_device
 
-LOCK_KEY = "cs2_voice_overlay_1_0_3"
+LOCK_KEY = "cs2_voice_overlay_1_0_4"
 CRASH_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crash.log")
 
 
 def _print_banner() -> None:
     print("=" * 56, flush=True)
-    print("  CS2 Voice Overlay — 1.0.3 (Counter-Strike 2 ONLY)", flush=True)
+    print("  CS2 Voice Overlay — 1.0.4 (Counter-Strike 2 ONLY)", flush=True)
     print("  • Team-Voice / Callouts → STT → Übersetzung", flush=True)
     print("  • Optimized for CS2 slang (not general YouTube)", flush=True)
     print("  • External only — no inject into cs2.exe / VAC-safe design", flush=True)
@@ -110,7 +110,7 @@ def run_app(
     )
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
-    app.setApplicationName("CS2 Voice Overlay 1.0.3")
+    app.setApplicationName("CS2 Voice Overlay 1.0.4")
 
     shared = QSharedMemory(LOCK_KEY)
     if not shared.create(1):
@@ -296,7 +296,7 @@ def run_app(
                     silence_ms=silence_ms,
                     interval_ms=interval_ms,
                     window_ms=max(window_ms, 2800),
-                    energy_threshold=0.0005,
+                    energy_threshold=0.0008,
                     min_speech_ms=50,
                 )
             mode = str(load_settings().get("capture_mode") or "out")
@@ -413,7 +413,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Whisper model: tiny (fast) | base (default, better speech) | small",
     )
     parser.add_argument("--no-stt", action="store_true")
-    parser.add_argument("--word-delay", type=int, default=0)
+    parser.add_argument(
+        "--word-delay",
+        type=int,
+        default=140,
+        help="ms between words when revealing translation (0 = all at once)",
+    )
     parser.add_argument("--silence-ms", type=int, default=550)
     parser.add_argument("--interval", type=int, default=550)
     parser.add_argument(
@@ -431,7 +436,7 @@ def main(argv: list[str] | None = None) -> int:
     window_ms = args.window
     model_size = args.model or "base"
     if args.fast:
-        word_delay = 0
+        word_delay = min(word_delay, 60)
         silence_ms = min(silence_ms, 350)
         interval_ms = min(interval_ms, 350)
         window_ms = min(window_ms, 1100)

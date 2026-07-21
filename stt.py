@@ -130,9 +130,13 @@ class SpeechToText:
         if peak < 0.0015 and rms < 0.0005:
             return None
 
-        # AGC: push quiet loopback/mic into a usable range for Whisper
-        ref = max(peak, rms * 4.0, 0.015)
-        audio = np.clip(audio / ref * 0.95, -1.0, 1.0)
+        # Mild level normalize — old AGC to 0.95 clipped CS2 mix and hurt STT
+        if peak > 0.55:
+            audio = np.clip(audio * (0.55 / peak), -1.0, 1.0)
+        elif peak < 0.08:
+            ref = max(peak, rms * 3.0, 0.02)
+            audio = np.clip(audio / ref * 0.45, -1.0, 1.0)
+        # mid levels: leave dynamics alone
 
         # Prompt: CS callouts + last phrase for continuity
         prompt = CS_INITIAL_PROMPT
@@ -150,7 +154,8 @@ class SpeechToText:
             beam_size=beam,
             best_of=beam,
             temperature=0.0,
-            condition_on_previous_text=bool(self._prev_text),
+            # Previous text often causes Whisper to echo/repeat bad lines
+            condition_on_previous_text=False,
             without_timestamps=True,
             initial_prompt=prompt,
             no_speech_threshold=0.85,

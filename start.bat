@@ -1,10 +1,10 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title CS2 Voice Overlay 1.0.3
+title CS2 Voice Overlay 1.0.4
 echo.
 echo  ============================================
-echo   CS2 Voice Overlay  1.0.3
+echo   CS2 Voice Overlay  1.0.4
 echo   NUR Counter-Strike 2  (Team-Voice / Callouts)
 echo  ============================================
 echo.
@@ -17,6 +17,7 @@ echo   4) Konsole: [tick] / [heard]
 echo   5) Beenden: Esc
 echo.
 echo  model tiny=schnell  base=standard  small=genauer
+echo  Wort-fuer-Wort: standard 140ms  ^|  aus: --word-delay 0
 echo.
 
 where python >nul 2>&1

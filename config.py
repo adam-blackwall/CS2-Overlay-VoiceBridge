@@ -32,3 +32,14 @@ def get_output_device() -> str | None:
 
 def set_output_device(name: str) -> None:
     save_settings({"output_device": name})
+
+
+def get_deepl_api_key() -> str | None:
+    v = load_settings().get("deepl_api_key")
+    if v:
+        return str(v).strip() or None
+    return None
+
+
+def set_deepl_api_key(key: str) -> None:
+    save_settings({"deepl_api_key": (key or "").strip()})

@@ -17,6 +17,7 @@ CS2_WHISPER_PROMPT = (
     "Dust2: long short cat tunnels upper lower. "
     "Actions: rotate stack rush default execute retake save eco full buy force buy drop. "
     "Info: one HP low one shot trade peek don't peek AWP. "
+    "German mix: rotieren, saven, drop mir, er ist low, Bombe gelegt, auf A, auf B, Mid, Flash. "
     "Languages: English German Russian Polish Spanish French. "
     "Ignore gunshots footsteps music. Only human speech."
 )

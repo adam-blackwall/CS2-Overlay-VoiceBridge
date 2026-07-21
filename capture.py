@@ -112,7 +112,8 @@ class _BaseCapture:
         on_level: LevelCallback | None = None,
         on_pcm: PcmCallback | None = None,
         auto_gain: bool = True,
-        target_rms: float = 0.10,
+        # Lower target: CS2 loopback is often loud; over-gain clips and confuses Whisper
+        target_rms: float = 0.05,
     ) -> None:
         self._device_name_pref = device_name
         self._sample_rate_pref = sample_rate
@@ -218,17 +219,19 @@ class _BaseCapture:
                         raw_rms = float(np.sqrt(np.mean(np.square(mono))) + 1e-12)
                         raw_peak = float(np.max(np.abs(mono)) + 1e-12)
 
-                        # Adaptive gain so quiet loopback still hits STT
+                        # Mild adaptive gain — cap hard so gunfire/voice don't clip
                         if self._auto_gain and raw_rms > 1e-6:
                             desired = self._target_rms / raw_rms
-                            desired = float(np.clip(desired, 0.5, 80.0))
-                            self._gain = 0.85 * self._gain + 0.15 * desired
+                            # Never boost more than ~8×; allow mild attenuation
+                            desired = float(np.clip(desired, 0.35, 8.0))
+                            self._gain = 0.90 * self._gain + 0.10 * desired
                         g = self._gain if self._auto_gain else 1.0
                         mono_g = np.clip(mono * g, -1.0, 1.0).astype(np.float32)
                         rms = float(np.sqrt(np.mean(np.square(mono_g))) + 1e-12)
                         peak = float(np.max(np.abs(mono_g)))
-                        rms_ui = min(1.0, rms * 8.0)
-                        peak_ui = min(1.0, peak * 3.0)
+                        # UI meter slightly less hot
+                        rms_ui = min(1.0, rms * 6.0)
+                        peak_ui = min(1.0, peak * 2.5)
                         with self._lock:
                             self._rms = rms_ui
                             self._peak = peak_ui
