@@ -1,5 +1,5 @@
 """
-Speech-to-text via faster-whisper — 1.0.2 recognition-focused.
+Speech-to-text via faster-whisper — 1.0.3 recognition-focused.
 """
 
 from __future__ import annotations

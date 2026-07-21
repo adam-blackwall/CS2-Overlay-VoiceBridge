@@ -1,10 +1,10 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title CS2 Voice Overlay 1.0.2
+title CS2 Voice Overlay 1.0.3
 echo.
 echo  ============================================
-echo   CS2 Voice Overlay  1.0.2
+echo   CS2 Voice Overlay  1.0.3
 echo   NUR Counter-Strike 2  (Team-Voice / Callouts)
 echo  ============================================
 echo.

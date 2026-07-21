@@ -1,5 +1,5 @@
 """
-CS2 Voice Overlay 1.0.2 — Counter-Strike 2 only
+CS2 Voice Overlay 1.0.3 — Counter-Strike 2 only
 
 Team voice → live STT → translate callouts → overlay.
 External process only — does NOT inject into cs2.exe.
@@ -37,13 +37,13 @@ from overlay import MockPipeline, OverlayBus, OverlayUpdate, OverlayWindow
 from pipeline import PipelineEvent, SpeechPipeline
 from stt import detect_device
 
-LOCK_KEY = "cs2_voice_overlay_1_0_2"
+LOCK_KEY = "cs2_voice_overlay_1_0_3"
 CRASH_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crash.log")
 
 
 def _print_banner() -> None:
     print("=" * 56, flush=True)
-    print("  CS2 Voice Overlay — 1.0.2 (Counter-Strike 2 ONLY)", flush=True)
+    print("  CS2 Voice Overlay — 1.0.3 (Counter-Strike 2 ONLY)", flush=True)
     print("  • Team-Voice / Callouts → STT → Übersetzung", flush=True)
     print("  • Optimized for CS2 slang (not general YouTube)", flush=True)
     print("  • External only — no inject into cs2.exe / VAC-safe design", flush=True)
@@ -110,7 +110,7 @@ def run_app(
     )
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
-    app.setApplicationName("CS2 Voice Overlay 1.0.2")
+    app.setApplicationName("CS2 Voice Overlay 1.0.3")
 
     shared = QSharedMemory(LOCK_KEY)
     if not shared.create(1):
@@ -395,7 +395,7 @@ def run_app(
 
     QTimer.singleShot(100, _start_backend)
 
-    print("Hotkeys: Esc quit | Ctrl+Shift+L language | Ctrl+Shift+S merken | C click-through", flush=True)
+    print("Hotkeys: Esc quit | Ctrl+Shift+L language | Ctrl+Shift+S merken | Ctrl+Shift+C LOCKED/UNLOCKED", flush=True)
     print("Languages:", lang_help_text(), flush=True)
     return app.exec()
 

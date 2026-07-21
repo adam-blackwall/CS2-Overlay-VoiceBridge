@@ -14,10 +14,14 @@ Slots (data contract for capture / STT / translation):
 
 Hotkeys:
   Ctrl+Shift+O  toggle overlay visible
-  Ctrl+Shift+C  toggle click-through (mouse passes through)
+  Ctrl+Shift+C  toggle LOCKED / UNLOCKED (click-through)
   Ctrl+Shift+Up / Down  opacity
   Ctrl+Shift+R  snap to top-right (primary screen)
   Esc           quit
+
+Lock chip (top-center):
+  LOCKED  (green)  — mouse goes through overlay to game / apps behind
+  UNLOCKED (red)   — overlay buttons and menus are interactive
 
 Run UI demo only:
   python overlay.py
@@ -237,11 +241,98 @@ STATUS_COLOR = {
 }
 
 
+class LockChip(QWidget):
+    """
+    Always-on-top LOCKED/UNLOCKED control.
+
+    Lives in its own window so it stays clickable while the main overlay
+    is click-through (LOCKED).
+    """
+
+    clicked = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("CS2 Overlay Lock")
+        flags = (
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowDoesNotAcceptFocus
+        )
+        self.setWindowFlags(flags)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.btn = QPushButton("UNLOCKED")
+        self.btn.setObjectName("lock_chip")
+        self.btn.setFlat(True)
+        self.btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn.setToolTip("LOCKED = Klicks gehen durch · UNLOCKED = Overlay bedienen")
+        self.btn.clicked.connect(self.clicked.emit)
+        # Soft outline so text stays readable on bright CS2 scenes
+        fx = QGraphicsDropShadowEffect(self.btn)
+        fx.setBlurRadius(10)
+        fx.setOffset(0, 1)
+        fx.setColor(QColor(0, 0, 0, 220))
+        self.btn.setGraphicsEffect(fx)
+        lay.addWidget(self.btn)
+        self.set_locked(False)
+        self.adjustSize()
+
+    def set_locked(self, locked: bool) -> None:
+        if locked:
+            self.btn.setText("LOCKED")
+            color = "#3ddc84"  # green text only
+        else:
+            self.btn.setText("UNLOCKED")
+            color = "#ff6b6b"  # red text only
+        # Fully transparent control — only the label color is visible
+        self.btn.setStyleSheet(
+            f"""
+            #lock_chip {{
+                color: {color};
+                background: transparent;
+                background-color: transparent;
+                border: none;
+                border-radius: 0px;
+                font-family: 'Segoe UI', sans-serif;
+                font-size: 12px;
+                font-weight: 800;
+                letter-spacing: 1.4px;
+                padding: 2px 8px;
+                min-width: 90px;
+            }}
+            #lock_chip:hover {{
+                color: {color};
+                background: transparent;
+                background-color: transparent;
+                border: none;
+            }}
+            #lock_chip:pressed {{
+                color: {color};
+                background: transparent;
+                background-color: transparent;
+                border: none;
+            }}
+            #lock_chip:focus {{
+                outline: none;
+                border: none;
+                background: transparent;
+            }}
+            """
+        )
+        self.adjustSize()
+
+
 class OverlayWindow(QWidget):
     def __init__(self, bus: OverlayBus) -> None:
         super().__init__()
         self.bus = bus
         self.state = OverlayState()
+        # locked == click-through (game/apps behind remain clickable)
         self._click_through = False
         # Nearly transparent overall (user can still tweak with Ctrl+Shift+Up/Down)
         self._opacity = 0.98
@@ -261,17 +352,24 @@ class OverlayWindow(QWidget):
         self._bind_hotkeys()
         self._place_corner()
 
+        # Separate lock control so it stays clickable while main is LOCKED
+        self._lock_chip = LockChip()
+        self._lock_chip.clicked.connect(self.toggle_click_through)
+        self._lock_chip.show()
+        self._sync_lock_chip()
+
         self.bus.updated.connect(self._on_update)
         self.setWindowOpacity(self._opacity)
         self._render()
         # Start in waiting state (waving dots)
         self._set_waiting(True)
         self._place_corner()
+        self._sync_lock_chip()
 
     # --- window chrome -----------------------------------------------------
 
     def _setup_window(self) -> None:
-        self.setWindowTitle("CS2 Voice Overlay 1.0.2")
+        self.setWindowTitle("CS2 Voice Overlay 1.0.3")
         # Frameless + always-on-top, but still a normal window (taskbar entry).
         # Avoid Qt.Tool + ShowWithoutActivating — that made the window easy to "lose".
         flags = (
@@ -301,7 +399,7 @@ class OverlayWindow(QWidget):
         panel_layout.setContentsMargins(10, 8, 10, 8)
         panel_layout.setSpacing(6)
 
-        # Header: status + language button
+        # Header: status | (lock chip floats above center) | language
         header = QHBoxLayout()
         self.lbl_status = QLabel()
         self.lbl_status.setObjectName("status")
@@ -311,12 +409,19 @@ class OverlayWindow(QWidget):
         self.btn_lang.setToolTip("Zielsprache wählen (Klick)")
         self.btn_lang.clicked.connect(self._open_lang_menu)
         self.lbl_hint = QLabel(
-            "AUDIO: OUT oder MIC · Sprache · bei Stille: MIC testen · Esc"
+            "LOCKED grün = Klicks durch · UNLOCKED rot = Overlay · Ctrl+Shift+C · Esc"
         )
         self.lbl_hint.setObjectName("hint")
-        header.addWidget(self.lbl_status, 0, Qt.AlignmentFlag.AlignLeft)
+        # Reserve vertical space so the floating lock chip doesn't cover content
+        self._lock_spacer = QLabel("")
+        self._lock_spacer.setFixedHeight(22)
+        self._lock_spacer.setMinimumWidth(110)
+        self._lock_spacer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header.addWidget(self.lbl_status, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         header.addStretch(1)
-        header.addWidget(self.btn_lang, 0, Qt.AlignmentFlag.AlignRight)
+        header.addWidget(self._lock_spacer, 0, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        header.addStretch(1)
+        header.addWidget(self.btn_lang, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         panel_layout.addLayout(header)
 
         self._lang_menu = QMenu(self)
@@ -599,6 +704,7 @@ class OverlayWindow(QWidget):
             self._corner = "top-right"
 
         self.move(int(x), int(y))
+        self._sync_lock_chip()
 
     # --- public actions ----------------------------------------------------
 
@@ -609,10 +715,17 @@ class OverlayWindow(QWidget):
             self.show()
 
     def toggle_click_through(self) -> None:
+        """Toggle LOCKED (click-through) / UNLOCKED (interactive overlay)."""
         self._click_through = not self._click_through
         self._apply_click_through()
-        mode = "ON" if self._click_through else "OFF"
-        self.lbl_hint.setText(f"Click-through {mode} · Ctrl+Shift+C toggle · drag when OFF")
+        if self._click_through:
+            self.lbl_hint.setText(
+                "LOCKED — Klicks gehen durch zum Spiel · Chip klicken oder Ctrl+Shift+C"
+            )
+        else:
+            self.lbl_hint.setText(
+                "UNLOCKED — Overlay bedienbar · Chip klicken = LOCKED · Esc"
+            )
 
     def adjust_opacity(self, delta: float) -> None:
         # Allow very transparent glass (down to ~15% overall window opacity)
@@ -620,14 +733,31 @@ class OverlayWindow(QWidget):
         self.setWindowOpacity(self._opacity)
 
     def _apply_click_through(self) -> None:
-        # Qt: transparent for input when click-through is on
+        # Qt: transparent for input when LOCKED — mouse reaches windows behind
         self.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents,
             self._click_through,
         )
-        # Re-assert topmost tool window
         self.setWindowFlag(Qt.WindowType.WindowTransparentForInput, self._click_through)
         self.show()
+        # Lock chip stays in its own window (never transparent for input)
+        if hasattr(self, "_lock_chip") and self._lock_chip is not None:
+            self._lock_chip.set_locked(self._click_through)
+            self._lock_chip.show()
+            self._lock_chip.raise_()
+            self._sync_lock_chip()
+
+    def _sync_lock_chip(self) -> None:
+        """Pin lock chip to top-center of the overlay."""
+        chip = getattr(self, "_lock_chip", None)
+        if chip is None:
+            return
+        chip.adjustSize()
+        g = self.frameGeometry()
+        x = g.x() + (g.width() - chip.width()) // 2
+        y = g.y() + 2
+        chip.move(int(x), int(y))
+        chip.raise_()
 
     # --- data → UI ---------------------------------------------------------
 
@@ -742,12 +872,38 @@ class OverlayWindow(QWidget):
         self._drag_offset = None
         super().mouseReleaseEvent(event)
 
+    def moveEvent(self, event) -> None:  # noqa: N802
+        super().moveEvent(event)
+        self._sync_lock_chip()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._sync_lock_chip()
+
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
         if self._position_locked:
             # Delay so size is final after first show
             QTimer.singleShot(0, self._place_corner)
             QTimer.singleShot(50, self._place_corner)
+        QTimer.singleShot(0, self._sync_lock_chip)
+        QTimer.singleShot(60, self._sync_lock_chip)
+        chip = getattr(self, "_lock_chip", None)
+        if chip is not None:
+            chip.show()
+            chip.raise_()
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        super().hideEvent(event)
+        chip = getattr(self, "_lock_chip", None)
+        if chip is not None:
+            chip.hide()
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        chip = getattr(self, "_lock_chip", None)
+        if chip is not None:
+            chip.close()
+        super().closeEvent(event)
 
 
 # ---------------------------------------------------------------------------
@@ -845,9 +1001,9 @@ def main() -> int:
     _ = mock  # keep alive
 
     print("CS2 Voice Overlay running.")
-    print("  Drag window to reposition")
+    print("  Top-center chip: LOCKED (green) / UNLOCKED (red)")
     print("  Ctrl+Shift+O  toggle visibility")
-    print("  Ctrl+Shift+C  click-through")
+    print("  Ctrl+Shift+C  lock / unlock (click-through)")
     print("  Ctrl+Shift+Up/Down  opacity")
     print("  Ctrl+Shift+R  reset position")
     print("  Esc  quit")
