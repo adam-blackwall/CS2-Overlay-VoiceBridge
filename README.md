@@ -1,4 +1,4 @@
-# CS2 Voice Overlay (VoiceBridge) — 1.0.4
+# CS2 Voice Overlay (VoiceBridge) — 1.0.5
 
 Realtime **voice translation overlay** for **Counter-Strike 2**.
 
@@ -99,28 +99,54 @@ For max quality: OpenAI Whisper API / Deepgram / AssemblyAI. Needs internet + AP
 
 ---
 
-## Install
+## Install (any Windows PC)
+
+### A) Easiest for friends (recommended)
+
+1. Download ZIP from GitHub → extract anywhere  
+2. Install **Python 3.11/3.12** from [python.org](https://www.python.org/downloads/)  
+   - Enable **“Add python.exe to PATH”**  
+3. Double-click **`setup.bat`** once (internet required)  
+4. Double-click **`start.bat`** every time after that  
+
+`setup.bat` creates a local `.venv` and installs all dependencies.  
+`start.bat` uses that venv automatically (and re-runs setup if modules are missing).
+
+### B) Manual / developers
 
 ```bash
 git clone https://github.com/adam-blackwall/CS2-Overlay-VoiceBridge.git
 cd CS2-Overlay-VoiceBridge
-pip install -r requirements.txt
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\python main.py
 ```
 
-Or download the ZIP from GitHub → extract → same `pip install` step.
+### C) Portable .exe (advanced)
+
+On a build PC (after `setup.bat`):
+
+```bat
+build_portable.bat
+```
+
+Ship the folder `dist\CS2-Voice-Overlay\` as a ZIP. Friends run `CS2-Voice-Overlay.exe`  
+(no Python install). First run may still download the Whisper model.
+
+**Not “every OS”:** this app targets **Windows**. Mac/Linux need a different audio stack.
 
 ---
 
 ## Run
 
-**Easy:** double-click `start.bat`
+**Easy:** double-click `start.bat` (after one `setup.bat`)
 
 **CLI:**
 
 ```bash
-python main.py
-python main.py --lang de --model base
-python main.py --list-devices
+.venv\Scripts\python main.py
+.venv\Scripts\python main.py --lang de --model base
+.venv\Scripts\python main.py --list-devices
 ```
 
 | Argument | Meaning |
@@ -189,7 +215,15 @@ python main.py --list-devices
 
 ## Version
 
-**1.0.4**
+**1.0.5**
+
+### Changelog (1.0.5)
+
+- **Works on any Windows PC** path: `setup.bat` + `start.bat` (auto venv, deps, optional Whisper preload)
+- `FREUNDE.txt` — short German install sheet for teammates
+- `build_portable.bat` — ship a portable `CS2-Voice-Overlay.exe` folder (no Python on target PC)
+- Frozen-app safe paths (`paths.py`) for settings / learning.db next to the exe
+- Clear missing-dependency errors (`bootstrap.py`)
 
 ### Changelog (1.0.4)
 

@@ -103,9 +103,17 @@ class SfxBank:
         save_wav: bool = True,
         min_seconds_between_saves: float = 0.6,
     ) -> None:
-        base = os.path.dirname(os.path.abspath(__file__))
-        self.db_path = db_path or os.path.join(base, "learning.db")
-        self.wav_dir = wav_dir or os.path.join(base, "sfx_bank")
+        try:
+            from paths import data_path
+
+            base_db = data_path("learning.db")
+            base_wav = data_path("sfx_bank")
+        except Exception:  # noqa: BLE001
+            base = os.path.dirname(os.path.abspath(__file__))
+            base_db = os.path.join(base, "learning.db")
+            base_wav = os.path.join(base, "sfx_bank")
+        self.db_path = db_path or base_db
+        self.wav_dir = wav_dir or base_wav
         self.match_distance = match_distance
         self.max_entries = max_entries
         self.save_wav = save_wav

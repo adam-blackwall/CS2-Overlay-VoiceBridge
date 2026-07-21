@@ -8,11 +8,17 @@ learning.db
 settings.json
 .env
 *.log
+crash.log
 
 # Virtual environments
 .venv/
 venv/
 env/
+
+# Packaging
+build/
+dist/
+*.spec
 
 # IDE / OS
 .idea/

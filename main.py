@@ -1,13 +1,13 @@
 """
-CS2 Voice Overlay 1.0.4 — Counter-Strike 2 only
+CS2 Voice Overlay 1.0.5 — Counter-Strike 2 only
 
 Team voice → live STT → translate callouts → overlay.
 External process only — does NOT inject into cs2.exe.
 
 Usage:
-  python main.py
+  setup.bat   (once per PC)
+  start.bat
   python main.py --lang de --model base
-  python main.py --list-devices
 """
 
 from __future__ import annotations
@@ -20,6 +20,11 @@ import traceback
 import warnings
 
 warnings.filterwarnings("ignore", message="data discontinuity in recording")
+
+# Friendly check before heavy imports
+from bootstrap import ensure_deps_or_exit
+
+ensure_deps_or_exit()
 
 from PySide6.QtCore import QSharedMemory, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -34,16 +39,17 @@ from capture import (
 from config import get_output_device, load_settings, save_settings, set_output_device
 from languages import OUTPUT_LANGUAGES, cycle_lang, get_lang, lang_help_text
 from overlay import MockPipeline, OverlayBus, OverlayUpdate, OverlayWindow
+from paths import data_path
 from pipeline import PipelineEvent, SpeechPipeline
 from stt import detect_device
 
-LOCK_KEY = "cs2_voice_overlay_1_0_4"
-CRASH_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crash.log")
+LOCK_KEY = "cs2_voice_overlay_1_0_5"
+CRASH_LOG = data_path("crash.log")
 
 
 def _print_banner() -> None:
     print("=" * 56, flush=True)
-    print("  CS2 Voice Overlay — 1.0.4 (Counter-Strike 2 ONLY)", flush=True)
+    print("  CS2 Voice Overlay — 1.0.5 (Counter-Strike 2 ONLY)", flush=True)
     print("  • Team-Voice / Callouts → STT → Übersetzung", flush=True)
     print("  • Optimized for CS2 slang (not general YouTube)", flush=True)
     print("  • External only — no inject into cs2.exe / VAC-safe design", flush=True)
@@ -110,7 +116,7 @@ def run_app(
     )
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
-    app.setApplicationName("CS2 Voice Overlay 1.0.4")
+    app.setApplicationName("CS2 Voice Overlay 1.0.5")
 
     shared = QSharedMemory(LOCK_KEY)
     if not shared.create(1):

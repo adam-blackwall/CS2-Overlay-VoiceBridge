@@ -1,0 +1,38 @@
+CS2 Voice Overlay — so läuft es auf JEDEM Windows-PC
+====================================================
+
+Variante A (einfach, empfohlen)
+-------------------------------
+1. Diesen ganzen Ordner kopieren (oder GitHub-ZIP entpacken)
+2. Python 3.11 oder 3.12 installieren:
+   https://www.python.org/downloads/
+   WICHTIG: Haken "Add python.exe to PATH"
+3. setup.bat  einmal doppelklicken (Internet, paar Minuten)
+4. start.bat  starten — fertig
+
+Bei Problemen:
+- setup.bat erneut
+- start.bat --model tiny   (schwacher PC)
+- In Windows: Headset als Wiedergabe, im Overlay AUDIO = dieses Gerät
+- CS2 auf Borderless Windowed
+
+
+Variante B (portable EXE — du baust, andere starten nur)
+--------------------------------------------------------
+Auf DEINEM PC nach setup.bat:
+  build_portable.bat
+Dann den Ordner dist\CS2-Voice-Overlay\ als ZIP schicken.
+Freunde starten nur CS2-Voice-Overlay.exe (kein Python nötig).
+
+
+Was braucht der PC?
+-------------------
+- Windows 10/11
+- Internet beim ersten Setup / Modell-Download
+- Genug RAM (8 GB+ empfohlen)
+- Headset-Audio (Loopback)
+
+
+Mac / Linux
+-----------
+Aktuell nicht unterstützt (Windows-Audio/Loopback).

@@ -1,3 +1,4 @@
-1.0.4
+1.0.5
 CS2 Voice Overlay — Counter-Strike 2 ONLY
 Focus: team voice + callouts (not general media)
+Portable Windows setup: setup.bat + start.bat

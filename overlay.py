@@ -369,7 +369,7 @@ class OverlayWindow(QWidget):
     # --- window chrome -----------------------------------------------------
 
     def _setup_window(self) -> None:
-        self.setWindowTitle("CS2 Voice Overlay 1.0.4")
+        self.setWindowTitle("CS2 Voice Overlay 1.0.5")
         # Frameless + always-on-top, but still a normal window (taskbar entry).
         # Avoid Qt.Tool + ShowWithoutActivating — that made the window easy to "lose".
         flags = (

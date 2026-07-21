@@ -32,8 +32,16 @@ class GlossaryHit:
 
 class LearningDB:
     def __init__(self, path: str | None = None) -> None:
-        base = os.path.dirname(os.path.abspath(__file__))
-        self.path = path or os.path.join(base, "learning.db")
+        if path:
+            self.path = path
+        else:
+            try:
+                from paths import data_path
+
+                self.path = data_path("learning.db")
+            except Exception:  # noqa: BLE001
+                base = os.path.dirname(os.path.abspath(__file__))
+                self.path = os.path.join(base, "learning.db")
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row

@@ -1,12 +1,13 @@
-"""Simple JSON settings."""
+"""Simple JSON settings (next to exe / project folder)."""
 
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 
-_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+from paths import data_path
+
+_PATH = data_path("settings.json")
 
 
 def load_settings() -> dict[str, Any]:
